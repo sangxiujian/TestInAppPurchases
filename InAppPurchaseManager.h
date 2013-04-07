@@ -12,23 +12,15 @@
 
 #define kInAppPurchaseManagerProductsFetchedNotification @"kInAppPurchaseManagerProductsFetchedNotification" 
 
-// add a couple notifications sent out when the transaction completes
-#define kInAppPurchaseManagerTransactionFailedNotification @"kInAppPurchaseManagerTransactionFailedNotification"
-#define kInAppPurchaseManagerTransactionSucceededNotification @"kInAppPurchaseManagerTransactionSucceededNotification" 
-
-
 @interface InAppPurchaseManager : NSObject <SKProductsRequestDelegate>
 {
-	SKProduct *proUpgradeProduct;
-	SKProductsRequest *productsRequest;
+	SKProductsRequest *_productsRequest;
 }
-
+@property (nonatomic ,strong)SKProductsRequest *productsRequest;
  
 
-// public methods
--(void)showStore;
-- (void)loadStore;
 - (BOOL)canMakePurchases;
-- (void)purchaseProUpgrade;
+- (void)purchaseProduct:(NSString *)identifier;
+
 
 @end

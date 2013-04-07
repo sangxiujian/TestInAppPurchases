@@ -9,21 +9,13 @@
 #import <Foundation/Foundation.h>
 
 #import <StoreKit/StoreKit.h> 
+#import "Inter.h"
 
-#define kInAppPurchaseManagerProductsFetchedNotification @"kInAppPurchaseManagerProductsFetchedNotification" 
-
-// add a couple notifications sent out when the transaction completes
-#define kInAppPurchaseManagerTransactionFailedNotification @"kInAppPurchaseManagerTransactionFailedNotification"
-#define kInAppPurchaseManagerTransactionSucceededNotification @"kInAppPurchaseManagerTransactionSucceededNotification" 
 
 @interface MyStoreObserver : NSObject <SKPaymentTransactionObserver> {
     
-    NSMutableDictionary *transactionRecord;
 	
 }
-@property (nonatomic,retain)NSMutableDictionary *transactionRecord;
-
--(void)PurchasedTransaction:(SKPaymentTransaction *)transaction;
 
 @end
 

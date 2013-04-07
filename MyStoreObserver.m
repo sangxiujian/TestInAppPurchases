@@ -7,116 +7,35 @@
 //
 
 #import "MyStoreObserver.h"
-#define kInAppPurchaseStampProductId @"com.jiayuan.jiayuaniphone.stamps2" 
+
+#define kInAppPurchaseStampProductId @"com.samonia.product1"
 
 @implementation MyStoreObserver
 
-@synthesize transactionRecord;
 
-#pragma -
-#pragma Purchase helpers 
-
-- (NSString *)loginArchivePath {
-	
-	NSString *docDir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask, YES) objectAtIndex:0];
-	
-	return [docDir stringByAppendingPathComponent:@"jylogin.dat"];
-}
-- (NSString *)transactionArchivePath {
-	
-	NSString *docDir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask, YES) objectAtIndex:0];
-	
-	return [docDir stringByAppendingPathComponent:@"jytransation.dat"];
-    
-}
-
--(void)loadHistoryRecord
+-(void)refreshTransaction
 {
-    
-    self.transactionRecord = [NSKeyedUnarchiver unarchiveObjectWithFile:[self transactionArchivePath]];
-    if (self.transactionRecord == nil) {
-        self.transactionRecord = [NSMutableDictionary dictionary];
+    if ([[[SKPaymentQueue defaultQueue]transactions]count]>0)
+    {
+        [self paymentQueue:[SKPaymentQueue defaultQueue] updatedTransactions:[[SKPaymentQueue defaultQueue]transactions]];
     }
-    
-    [self refreshTransaction];
-    
-    
 }
-
-
 //
 // saves a record of the transaction by storing the receipt to disk
 //
 - (void)recordTransaction:(SKPaymentTransaction *)transaction
 {
-    //self.lastTransaction = transaction;
-    
-    NSString *strUid = [NSString stringWithFormat:@"%d",111111];
-    
-    NSUInteger oldUid = [[transactionRecord objectForKey:transaction.transactionIdentifier]intValue];
-    if (oldUid == 0) {
-        [transactionRecord setObject:strUid forKey:transaction.transactionIdentifier];
-    }
-    
-    [NSKeyedArchiver archiveRootObject:transactionRecord toFile:[self transactionArchivePath]];
-    NSLog(@"recordTransaction:%@------",[transactionRecord description]);
-    
-} 
 
-
-
+    
+}
 
 //
-// enable pro features
+// posts a notification with the transaction result
 //
-- (void)provideContent:(NSString *)productId
+- (void)notifyTransaction:(SKPaymentTransaction *)transaction changedToState:(SAInAppPurchaseState)purchaseState
 {
-	NSLog(@"provideContent");
-	if ([productId isEqualToString:kInAppPurchaseStampProductId])
-	{
-		// enable the pro features
-		[[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"isProUpgradePurchased" ];
-		[[NSUserDefaults standardUserDefaults] synchronize];
-	}
-} 
-
-//
-// removes the transaction from the queue and posts a notification with the transaction result
-//
-- (void)finishTransaction:(SKPaymentTransaction *)transaction wasSuccessful:(BOOL)wasSuccessful
-{
-	
-    
-	
-	// remove the transaction from the payment queue.
-	//[[SKPaymentQueue defaultQueue] finishTransaction:transaction];//sxj
-	NSString *errmsg;
-	NSDictionary *userInfo = [NSDictionary dictionaryWithObjectsAndKeys:transaction, @"transaction" , nil];
-	if (wasSuccessful)
-	{
-		// send out a notification that we’ve finished the transaction
-		[[NSNotificationCenter defaultCenter] postNotificationName:kInAppPurchaseManagerTransactionSucceededNotification object:self userInfo:userInfo];
-		errmsg = @"sucessful";
-        if ([[NSUserDefaults standardUserDefaults] boolForKey:@"finishSwitchOn" ]) {
-            [[SKPaymentQueue defaultQueue] finishTransaction:transaction];//sxj
-            NSLog(@"has finished");
-        }
-	}
-	else
-	{
-		// send out a notification for the failed transaction
-		[[NSNotificationCenter defaultCenter] postNotificationName:kInAppPurchaseManagerTransactionFailedNotification object:self userInfo:userInfo];
-		errmsg = [transaction.error localizedDescription];
-        [[SKPaymentQueue defaultQueue] finishTransaction:transaction];//sxj
-	}
-	
-	UIAlertView *alertView = [[UIAlertView alloc] initWithTitle:@"PayMent"
-														message:errmsg
-													   delegate:nil
-											  cancelButtonTitle:@"OK"
-											  otherButtonTitles:nil];
-    [alertView show];
-    [alertView release];
+	NSDictionary *userinfo = [NSDictionary dictionaryWithObjectsAndKeys:[NSNumber numberWithInt: purchaseState], @"state",transaction.payment.productIdentifier,@"productId",nil];
+    [[NSNotificationCenter defaultCenter]postNotificationName:kInAppPurchaseManagerTransactionStateChangedNotification object:self userInfo:userinfo];
 } 
 
 //
@@ -124,11 +43,11 @@
 //
 - (void)completeTransaction:(SKPaymentTransaction *)transaction
 {
-    NSLog(@"=========completeTransaction=========");//1000000004154062
-	[self recordTransaction:transaction];
-	[self provideContent:transaction.payment.productIdentifier];
-	[self finishTransaction:transaction wasSuccessful:YES];
-} 
+    NSLog(@"=========completeTransaction=========");
+    [self notifyTransaction:transaction changedToState:SAInAppPurchaseStateSucessTransaction];
+    [self recordTransaction:transaction];
+	[self checkPurchase:transaction];
+}
 
 //
 // called when a transaction has been restored and and successfully completed
@@ -136,9 +55,9 @@
 - (void)restoreTransaction:(SKPaymentTransaction *)transaction
 {
     NSLog(@"=========restoreTransaction=========");
-	[self recordTransaction:transaction.originalTransaction];
-	[self provideContent:transaction.originalTransaction.payment.productIdentifier];
-	[self finishTransaction:transaction wasSuccessful:YES];
+    [self notifyTransaction:transaction changedToState:SAInAppPurchaseStateSucessTransaction];
+	[self recordTransaction:transaction];
+	[self checkPurchase:transaction];
 } 
 
 //
@@ -146,37 +65,20 @@
 //
 - (void)failedTransaction:(SKPaymentTransaction *)transaction
 {
-	if (transaction.error.code != SKErrorPaymentCancelled)
+    [self notifyTransaction:transaction changedToState:SAInAppPurchaseStateFailedTransaction];
+ 
+	[[SKPaymentQueue defaultQueue] finishTransaction: transaction];
+    
+    if (transaction.error.code != SKErrorPaymentCancelled)
 	{
-		NSLog(@"failedTransaction:cancelled:%@",[transaction.error localizedDescription]);
-		// error!
-		[self finishTransaction:transaction wasSuccessful:NO];
-	}
-	else
-	{
-		NSLog(@"failedTransaction:cancelled222");
-		// this is fine, the user just cancelled, so don’t notify
-		[[SKPaymentQueue defaultQueue] finishTransaction:transaction];
+		UIAlertView *alert = [[UIAlertView alloc] initWithTitle:NSLocalizedString(@"buy err", nil) message:[transaction.error localizedDescription] delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+		[alert show];
+		[alert release];
 	}
 } 
 
--(void)refreshTransaction
-{
-    NSLog(@"refresh:%d",[[[SKPaymentQueue defaultQueue]transactions]count]);
-    if ([[[SKPaymentQueue defaultQueue]transactions]count]>0) 
-    {
-        
-        [self paymentQueue:[SKPaymentQueue defaultQueue] updatedTransactions:[[SKPaymentQueue defaultQueue]transactions]];
-    }
-}
 
--(void)PurchasedTransaction:(SKPaymentTransaction *)transaction {
-	
-	NSArray *transactions =[[NSArray alloc] initWithObjects:transaction, nil];
-	[self paymentQueue:[SKPaymentQueue defaultQueue] updatedTransactions:transactions];
-	[transactions release];
-	
-}
+
 
 #pragma mark -
 #pragma mark SKPaymentTransactionObserver methods 
@@ -186,7 +88,6 @@
 //
 - (void)paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray *)transactions
 {
-    NSLog(@"satate:changed");
 	for (SKPaymentTransaction *transaction in transactions)
 	{
 		switch (transaction.transactionState)
@@ -198,7 +99,7 @@
 				[self failedTransaction:transaction];
 				break;
 			case SKPaymentTransactionStateRestored:
-				//[self restoreTransaction:transaction];
+				[self restoreTransaction:transaction];
 				break;
 			default:
 				break;
@@ -206,4 +107,55 @@
 	}
 }
 
+#pragma mark - Check
+
+-(void)checkPurchase:(SKPaymentTransaction*)transaction{
+
+//    NSMutableDictionary *tempDict = [NSMutableDictionary dictionaryWithObject:
+//                                     [self encode:(uint8_t*)[[transaction transactionReceipt] bytes]length:[[transaction transactionReceipt] length]] forKey:@"receipt-data"];
+//    
+//    NSString *jsonValue = [tempDict JSONRepresentation];
+     [self notifyTransaction:transaction changedToState:SAInAppPurchaseStateCheckingPurchase];
+  
+}
+
+-(void)checkPurchaseReturn:(NSDictionary*)dicReturn{
+
+    //[[SKPaymentQueue defaultQueue] finishTransaction:transaction];
+    //[self removeRecord];
+    //if (sucess) {
+//    [self notifyTransaction:transaction changedToState:SAInAppPurchaseStateSucessCheckPurchase];
+
+   // }else{
+//        [self notifyTransaction:transaction changedToState:SAInAppPurchaseStateFailedCheckPurchase];
+
+    //}
+}
+
+- (NSString*)encode:(const uint8_t*)input length:(NSInteger)length {
+	
+    static char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+	
+    NSMutableData* data = [NSMutableData dataWithLength:((length + 2) / 3) * 4];
+    uint8_t* output = (uint8_t*)data.mutableBytes;
+	
+    for (NSInteger i = 0; i < length; i += 3) {
+        NSInteger value = 0;
+        for (NSInteger j = i; j < (i + 3); j++) {
+            value <<= 8;
+			
+            if (j < length) {
+                value |= (0xFF & input[j]);
+            }
+        }
+		
+        NSInteger index = (i / 3) * 4;
+        output[index + 0] =                    table[(value >> 18) & 0x3F];
+        output[index + 1] =                    table[(value >> 12) & 0x3F];
+        output[index + 2] = (i + 1) < length ? table[(value >> 6)  & 0x3F] : '=';
+        output[index + 3] = (i + 2) < length ? table[(value >> 0)  & 0x3F] : '=';
+    }
+	
+    return [[[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding] autorelease];
+}
 @end
